@@ -21,7 +21,7 @@ class GraphAnalyser(object):
         self.__known_vars = list(known_vars)
         self.__constraints = dict(constraints)
 
-        #dictionary used for better visualisation of the graph
+        #dictionary used for better node organisation in visualisations
         self.__node_positions = dict()
 
         self.__graph = self.__create_graph(unknown_vars, known_vars, constraints)
@@ -47,8 +47,9 @@ class GraphAnalyser(object):
             graph.add_node(known_vars[i])
             self.__node_positions[known_vars[i]] = (len(self.__node_positions.keys())*10., 20.)
 
-        #counter used for visualisation purposes
+        #used for node organisation in visualisations of the graph
         constraint_counter = 0
+
         for constraint, variables in constraints.iteritems():
             graph.add_node(constraint)
             self.__node_positions[constraint] = (constraint_counter*10., 0.)
@@ -75,7 +76,7 @@ class GraphAnalyser(object):
                 node_colours.append('b')
 
         if edge_colours != None:
-            nx.draw(self.__graph, pos=self.__node_positions, node_color=node_colours, edge_colour=edge_colours)
+            nx.draw(self.__graph, pos=self.__node_positions, node_color=node_colours, edge_color=edge_colours)
         else:
             nx.draw(self.__graph, pos=self.__node_positions, node_color=node_colours)
 
@@ -178,9 +179,12 @@ class GraphAnalyser(object):
 
         return reduced_matrix, ordered_constraints, ordered_variables
 
-    def find_matching(self):
+    def find_matching(self, banned_edges=[]):
         '''Finds a matching in 'self.__graph'.
         The matching algorithm uses the ranking algorithm described in Blanke et al., p. 142.
+
+        Keyword arguments:
+        banned_edges -- A list of tuples; each tuples represents an edge that cannot participate in a matching because it would cause integral causality.
 
         Returns:
         matching -- A dictionary where the keys represent constraints and the values represent variables matched with the constraints.
@@ -196,6 +200,13 @@ class GraphAnalyser(object):
             ranking[variable] = rank
 
         adj_matrix, ordered_constraints, ordered_variables = self.get_adjacency_matrix()
+
+        #we remove the banned edges from the adjacency matrix
+        for i,constraint in enumerate(ordered_constraints):
+            for j,variable in enumerate(ordered_variables):
+                if adj_matrix[i][j] > 0. and (constraint,variable) in banned_edges:
+                    adj_matrix[i][j] = 0.
+
         continue_ranking = True
         while continue_ranking:
             for i,constraint in enumerate(ordered_constraints):
