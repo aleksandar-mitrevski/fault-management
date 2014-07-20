@@ -3,15 +3,41 @@ import matplotlib.pyplot as plt
 import sympy
 
 class GraphAnalyser(object):
+    '''Defines a library for creating and analysing graphs that represent system constraints and variables.
+    The class is based on M. Blanke, M. Kinnaert, J. Lunze and M. Staroswiecki, Diagnosis and Fault Tolerant Control. Germany: Springer-Verlag Berlin Heidelberg, 2006.
+
+    Author -- Aleksandar Mitrevski
+
+    '''
     def __init__(self, unknown_vars, known_vars, constraints):
+        '''
+        Keyword arguments:
+        unknown_vars -- A list of unknown system variables.
+        known_vars -- A list of known system variables.
+        constraints -- A dictionary where the keys represent constraints and the values represent list of variables associated with the appropriate constraints.
+        
+        '''
         self.__unknown_vars = list(unknown_vars)
         self.__known_vars = list(known_vars)
         self.__constraints = dict(constraints)
+
+        #dictionary used for better visualisation of the graph
         self.__node_positions = dict()
 
         self.__graph = self.__create_graph(unknown_vars, known_vars, constraints)
 
     def __create_graph(self, unknown_vars, known_vars, constraints):
+        '''Creates a bipartite graph connecting system variables and constraints.
+
+        Keyword arguments:
+        unknown_vars -- A list of unknown system variables.
+        known_vars -- A list of known system variables.
+        constraints -- A dictionary where the keys represent constraints and the values represent list of variables associated with the appropriate constraints.
+
+        Returns:
+        graph -- A 'networkx.Graph' object.
+
+        '''
         graph = nx.Graph()
         for i in xrange(len(unknown_vars)):
             graph.add_node(unknown_vars[i])
@@ -32,25 +58,100 @@ class GraphAnalyser(object):
 
         return graph
 
-    def draw_graph(self):
-        '''Coloring as done in http://stackoverflow.com/questions/13517614/draw-different-color-for-nodes-in-networkx-based-on-their-node-value?rq=1
+    def draw_graph(self, edge_colours=None):
+        '''Draws 'self.__graph'. The nodes are coloured as in http://stackoverflow.com/questions/13517614/draw-different-color-for-nodes-in-networkx-based-on-their-node-value?rq=1
+
+        Keyword arguments:
+        edge_colours -- If it is equal to None, the variable is ignored; if not, it is expected to be a list of colours, such that the i-th element corresponds to the i-th edge in 'self.__graph.edges()'.
+
         '''
-        node_colors = list()
+        node_colours = list()
         for node in self.__graph.nodes():
             if node in self.__unknown_vars:
-                node_colors.append('r')
+                node_colours.append('r')
             elif node in self.__known_vars:
-                node_colors.append('g')
+                node_colours.append('g')
             else:
-                node_colors.append('b')
+                node_colours.append('b')
 
-        nx.draw(self.__graph, pos=self.__node_positions, node_color=node_colors)
-        plt.show()
+        if edge_colours != None:
+            nx.draw(self.__graph, pos=self.__node_positions, node_color=node_colours, edge_colour=edge_colours)
+        else:
+            nx.draw(self.__graph, pos=self.__node_positions, node_color=node_colours)
+
+    def draw_matched_graph(self, matching):
+        '''Draws 'self.__graph' using a previously found matching.
+
+        Keyword arguments:
+        matching -- A dictionary where the keys represent constraints and the values represent variables matched with the constraints.
+
+        '''
+        matching_edges = self.get_matching_edges(matching)
+
+        edge_colours = list()
+        for _,edge in enumerate(self.__graph.edges()):
+            if edge in matching_edges or edge[::-1] in matching_edges:
+                edge_colours.append('r')
+            else:
+                edge_colours.append('k')
+
+        self.draw_graph(edge_colours)
+
+    def draw_directed_graph(self, matching):
+        '''Uses a matching for finding a directed version of 'self.__graph'; draws the directed graph after constructing it.
+
+        Keyword arguments:
+        matching -- A dictionary where the keys represent constraints and the values represent variables matched with the constraints.
+
+        '''
+
+        directed_graph = self.__create_matching_graph(matching)
+        zero_var = sympy.Symbol('zero')
+
+        node_colours = list()
+        for node in directed_graph.nodes():
+            if node in self.__unknown_vars:
+                node_colours.append('r')
+            elif node in self.__known_vars or node == zero_var:
+                node_colours.append('g')
+            else:
+                node_colours.append('b')
+
+        node_positions = dict(self.__node_positions)
+        node_positions[zero_var] = ((len(self.__unknown_vars) + len(self.__known_vars))*10., 20.)
+        nx.draw(directed_graph, pos=node_positions, node_color=node_colours)
 
     def get_nodes(self):
         return self.__graph.nodes()
 
+    def get_edges(self):
+        return self.__graph.edges()
+
+    def get_matching_edges(self, matching):
+        '''Converts the input dictionary into a list of tuples and returns the list.
+
+        Keyword arguments:
+        matching -- A dictionary where the keys represent constraints and the values represent variables matched with the constraints.
+
+        Returns:
+        matching_edges -- A list of tuples; each tuple represents an edge that belongs to a matching.
+
+        '''
+        matching_edges = list()
+        for key,value in matching.iteritems():
+            matching_edges.append((key,value))
+        return matching_edges
+
     def get_adjacency_matrix(self):
+        '''Finds a reduced version of the adjacency matrix representing 'self.__graph',
+        such that the rows represent constraints and the columns represent variables.
+
+        Returns:
+        reduced_matrix -- The reduced adjacency matrix.
+        ordered_constraints -- A list of constraints represented by the graph, such that the i-th constraint represents the i-th row of 'reduced_matrix'.
+        ordered_variables -- A list of variables represented by the graph, such that the i-th variables represents the i-th column of 'reduced_matrix'.
+
+        '''
         matrix = nx.adjacency_matrix(self.__graph).tolist()
         nodes = self.__graph.nodes()
 
@@ -78,7 +179,12 @@ class GraphAnalyser(object):
         return reduced_matrix, ordered_constraints, ordered_variables
 
     def find_matching(self):
-        '''Matching algorithm based on Blanke's ranking algorithm.
+        '''Finds a matching in 'self.__graph'.
+        The matching algorithm uses the ranking algorithm described in Blanke et al., p. 142.
+
+        Returns:
+        matching -- A dictionary where the keys represent constraints and the values represent variables matched with the constraints.
+
         '''
 
         rank = 0
@@ -135,4 +241,32 @@ class GraphAnalyser(object):
             else:
                 rank = rank + 1
 
-        return ranking, matching
+        return matching
+
+    def __create_matching_graph(self, matching):
+        '''Finds a directed version of 'self.__graph' using the input matching; the conversion of the graph is based on Blanke et al., p. 125.
+
+        Returns:
+        graph -- A 'network.DiGraph' object representing the graph's directed version.
+
+        '''
+        graph = nx.DiGraph()
+        matching_edges = self.get_matching_edges(matching)
+
+        for _,edge in enumerate(self.__graph.edges()):
+            if edge in matching_edges:
+                graph.add_edge(edge[0], edge[1])
+            elif edge[::-1] in matching_edges:
+                graph.add_edge(edge[1], edge[0])
+            else:
+                if edge[0] in self.__constraints:
+                    graph.add_edge(edge[1], edge[0])
+                else:
+                    graph.add_edge(edge[0], edge[1])
+
+        zero_var = sympy.Symbol('zero')
+        for _,edge in enumerate(matching_edges):
+            if zero_var == edge[1]:
+                graph.add_edge(edge[0], edge[1])
+
+        return graph
